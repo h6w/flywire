@@ -1,0 +1,804 @@
+package org.bentokit.flywire.gui.panels;
+
+import org.bentokit.krispi.PluginManager;
+import org.bentokit.krispi.Plugin;
+
+import java.awt.BorderLayout;
+import java.awt.dnd.*;
+import java.awt.datatransfer.*;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.FileWriter;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.IOException;
+import java.io.File;
+import java.io.StringWriter;
+import java.net.MalformedURIException;
+import java.util.Vector;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.Icon;
+import javax.swing.ImageIcon;
+import javax.swing.JComponent;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import java.awt.EventQueue;
+import javax.swing.TransferHandler;
+import javax.swing.TransferHandler.TransferSupport;
+import javax.swing.border.*;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import org.w3c.dom.Node;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+
+public class PanelEditor extends JPanel {
+    class Panel { };
+    class Plugin { };
+
+    //public static PanelEditor SELF;
+
+    ActionIcon rowIcon, columnIcon; //, tableIcon, addIcon, deleteIcon;
+    TrashIcon trashIcon;
+    DNDContainer workingPanel;
+    JPanel iconPanel;
+    Document doc;
+    File file;
+    PluginManager pluginManager;
+
+    public static final DataFlavor containerFlavor = new DataFlavor(org.bentokit.flywire.gui.panels.PanelEditor.Panel.class, 
+                                                "X-flywire/panel; class=<org.bentokit.flywire.gui.panels.PanelEditor.Panel>;");
+    public static final DataFlavor pluginFlavor = new DataFlavor(org.bentokit.flywire.gui.panels.PanelEditor.Plugin.class, 
+                                                "X-flywire/plugin; class=<org.bentokit.flywire.gui.panels.PanelEditor.Plugin>;");
+
+    public enum PanelType
+    {
+        CONTAINER("Panel"), PLUGIN("Plugin"), NOVALUE("");
+
+        private String name;
+
+        PanelType(String name) { this.name = name; }
+        public String toString() { return(this.name); }
+
+        /**
+        * Parse text into an element of this enumeration.
+        *
+        * @param aText takes one of the values 'Panel',
+        * 'Plugin'
+        */
+
+        public static PanelType parseString(String aText){
+            for (PanelType panelType : PanelType.values()) {
+                if (aText.equals(panelType.toString())) {
+                  return panelType;
+                }
+            }
+            return(null);
+        }
+    }
+
+
+    public PanelEditor(PluginManager pluginManager, File file) {
+        //SELF = this;
+        this.file = file;
+        this.pluginManager = pluginManager;
+
+        this.setLayout(new BorderLayout());
+        this.setBorder(new EmptyBorder(5,5,5,5));
+
+        DNDContainer rowTemplate = new DNDContainer();
+        rowTemplate.setLayout(new BoxLayout(rowTemplate,BoxLayout.X_AXIS));
+        DNDContainer colTemplate = new DNDContainer();
+        colTemplate.setLayout(new BoxLayout(colTemplate,BoxLayout.Y_AXIS));
+
+        JPanel iconPanel = new JPanel();
+        iconPanel.setLayout(new BoxLayout(iconPanel, BoxLayout.Y_AXIS));
+
+        rowIcon = new ActionIcon("row.png",null,"Insert row panel",rowTemplate);
+        columnIcon = new ActionIcon("column.png",null,"Insert column panel",colTemplate);
+
+        iconPanel.add(rowIcon);
+        iconPanel.add(columnIcon);
+
+        for (org.bentokit.krispi.Plugin plugin : pluginManager.getAvailablePlugins()) {
+            DNDObject pluginTemplate = new DNDPlugin(plugin);
+            ActionIcon pluginIcon = new ActionIcon(plugin.getIcon(),plugin.getName(),pluginTemplate);
+            iconPanel.add(pluginIcon);
+        }
+
+        trashIcon = new TrashIcon("trash.png",null,"Trash Object");
+
+        iconPanel.add(trashIcon);
+
+        loadXML();
+
+        workingPanel = new DNDContainer();
+        workingPanel.setLayout(new BoxLayout(workingPanel,BoxLayout.X_AXIS));
+        workingPanel.setElement(this.doc.getDocumentElement());
+        this.convertNodeToGUI(workingPanel,this.doc.getDocumentElement());
+
+        this.add(workingPanel,BorderLayout.CENTER);
+        this.add(iconPanel,BorderLayout.EAST);
+
+    }
+
+
+    public void loadDefaultXML(DocumentBuilder docBuilder) {
+        System.err.println("Error in XML file.  Loading default XML.");
+        this.doc = docBuilder.newDocument();
+
+        ////////////////////////
+        //Creating the XML tree
+
+        //create the root element and add it to the document
+        Element root = this.doc.createElement("ui");
+        this.doc.appendChild(root);                
+    }
+
+    //Load the XML from a file, or construct a default Document.
+    public void loadXML() {
+        try {
+            DocumentBuilderFactory dbfac = DocumentBuilderFactory.newInstance();
+            DocumentBuilder docBuilder = dbfac.newDocumentBuilder();
+            try {
+                if (this.file.exists()) {
+                    this.doc = docBuilder.parse(this.file);
+                } else {
+                    this.loadDefaultXML(docBuilder);
+                }
+            } catch (org.xml.sax.SAXException se) {
+                this.loadDefaultXML(docBuilder);
+            } catch (java.io.IOException e) {
+                e.printStackTrace();
+            }
+        } catch (javax.xml.parsers.ParserConfigurationException pce) {
+        	pce.printStackTrace();
+        }
+    }
+
+    public void convertNodeToGUI(DNDContainer container, Node node) {
+        for(Node childNode = node.getFirstChild();
+            childNode!=null;){
+            Node nextChild = childNode.getNextSibling();
+            if (childNode instanceof Element) {
+                Element childElement = (Element) childNode;
+                switch(PanelType.parseString(childElement.getNodeName())) {
+                    case CONTAINER:
+                        {
+                            DNDContainer child = new DNDContainer();
+                            String layoutStr = childElement.getAttribute("layout");
+                            if (layoutStr.equals("BoxLayout")) {
+                                String axisStr = childElement.getAttribute("axis");
+                                child.setLayout(new BoxLayout(child,Integer.parseInt(axisStr)));
+                                this.convertNodeToGUI(child,childNode);
+                            } else System.err.println("Unknown layout manager \""+layoutStr+"\"");
+                            child.setParent(container);
+                            child.setElement(childElement);
+                            container.addDNDObject(child,this);
+                        }
+                        break;
+                    case PLUGIN:
+                        {
+                            org.bentokit.krispi.Plugin plugin = this.pluginManager.getPluginByName(childElement.getAttribute("name"));
+                            DNDPlugin child = new DNDPlugin(plugin);
+                            child.setParent(container);
+                            child.setElement(childElement);
+                            container.addDNDObject(child,this);
+                        }
+                        break;
+                    default: System.err.println("Unknown xml element found: "+childElement.getNodeName());
+                }
+            }
+            childNode = nextChild;
+        }
+    }
+
+
+    public void saveXMLtoFile() {
+        try {
+            FileWriter fw = new FileWriter(this.file);
+            System.err.println(this.outputXMLtoString());
+            fw.write(this.outputXMLtoString());
+            fw.flush();
+            fw.close();
+            System.err.println("Layout file "+this.file.toString()+" saved.");
+        } catch (java.io.IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public String outputXMLtoString() {
+        StreamResult xmlOutput = new StreamResult(new StringWriter());
+
+        // Configure transformer
+        try {
+            Transformer transformer = TransformerFactory.newInstance()
+                            .newTransformer(); // An identity transformer
+            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+            transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2");
+            transformer.transform(new DOMSource(this.doc), xmlOutput);
+        } catch (javax.xml.transform.TransformerConfigurationException tce) {
+            tce.printStackTrace();
+        } catch (javax.xml.transform.TransformerException te) {
+            te.printStackTrace();
+        }
+
+        return(xmlOutput.getWriter().toString());    
+    }
+
+    public static void showInWindow(PluginManager pluginManager) {
+        JFrame frame = new JFrame("PanelEditor");
+        frame.getContentPane().add(new PanelEditor(pluginManager,new File(System.getProperty("user.home")+File.separator+".bripper"+File.separator+"layout.xml")));
+
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.pack();
+        frame.setVisible(true);    
+    }
+
+
+    public static void main(String[] argv) {
+        try{
+            final PluginManager pluginManager;
+        
+        	pluginManager = new PluginManager((new File(System.getProperty("user.home")+File.separator+".bripper"+File.separator+"plugins")).toURI(),"BRipper");
+
+            EventQueue.invokeLater(new Runnable() {
+                public void run() {
+                    showInWindow(pluginManager);
+                }
+            });
+        } catch (MalformedURIException e) {
+        	System.err.println("PlugManager failed to initialise.");
+        }
+    }
+
+    class ActionIcon extends JPanel implements DragGestureListener, DragSourceListener {   
+        DragSource dragSource;
+        DNDObject templateComponent;
+     
+        public ActionIcon(String label, DNDObject templateComponent) {
+            this.setLayout(new BorderLayout());
+        
+            if (label != null) {
+                this.add(new JLabel(label),BorderLayout.SOUTH);
+            }
+
+            dragSource = new DragSource();
+            dragSource.createDefaultDragGestureRecognizer(
+                this, DnDConstants.ACTION_COPY, this);
+
+            this.templateComponent = templateComponent;
+        }
+
+        public ActionIcon(Icon icon, String label, DNDObject templateComponent) {
+            this(label, templateComponent);
+            if (icon != null) {
+                this.add(new JLabel(icon),BorderLayout.CENTER);
+            }
+        }
+
+        public ActionIcon(String filename, String label, String tooltip, DNDObject templateComponent) {
+            this(new ImageIcon(filename,tooltip), label, templateComponent);
+        }
+
+        public void dragGestureRecognized(DragGestureEvent evt) {
+            //Serialize object
+            byte[] bytes = null;
+            ByteArrayOutputStream baos = null;
+            ObjectOutputStream out = null;
+            DNDObject newobj = null;
+
+            try
+            {
+                baos = new ByteArrayOutputStream();
+                out = new ObjectOutputStream(baos);
+                out.writeObject(this.templateComponent);
+                out.close();
+
+                //Reinflate object
+                ByteArrayInputStream bais = null;
+                ObjectInputStream in = null;
+                try
+                {
+
+                    bais = new ByteArrayInputStream(baos.toByteArray());
+                    in = new ObjectInputStream(bais);
+                    newobj = (DNDObject)in.readObject();
+                    in.close();
+
+
+                    Transferable t = new TransferableComponent(new PanelEvent(newobj,PanelEditor.this));
+                    dragSource.startDrag (evt, DragSource.DefaultCopyDrop, t, this);
+
+                }
+                catch(IOException ex)
+                {
+                  ex.printStackTrace();
+                }
+                catch(ClassNotFoundException ex)
+                {
+                  ex.printStackTrace();
+                }
+
+
+            }
+            catch(IOException ex)
+            {
+              ex.printStackTrace();
+            }
+        }
+        public void dragEnter(DragSourceDragEvent evt) {
+            // Called when the user is dragging this drag source and enters
+            // the drop target.
+        }
+        public void dragOver(DragSourceDragEvent evt) {
+            // Called when the user is dragging this drag source and moves
+            // over the drop target.
+        }
+        public void dragExit(DragSourceEvent evt) {
+            // Called when the user is dragging this drag source and leaves
+            // the drop target.
+        }
+        public void dropActionChanged(DragSourceDragEvent evt) {
+            // Called when the user changes the drag action between copy or move.
+        }
+        public void dragDropEnd(DragSourceDropEvent evt) {
+            // Called when the user finishes or cancels the drag operation.
+        }
+
+    }
+
+
+    class TrashIcon extends JPanel implements DropTargetListener {
+        Border highlightBorder;
+
+        public TrashIcon(String label) {
+            new DropTarget(this,this);
+            this.setLayout(new BorderLayout());
+        
+            if (label != null) {
+                this.add(new JLabel(label),BorderLayout.SOUTH);
+            }
+
+            this.highlightBorder = new javax.swing.border.LineBorder(java.awt.Color.GREEN,1,true);
+        }
+
+        public TrashIcon(Icon icon, String label) {
+            this(label);
+            if (icon != null) {
+                this.add(new JLabel(icon),BorderLayout.CENTER);
+            }
+
+        }
+
+        public TrashIcon(String filename, String label, String tooltip) {
+            this(new ImageIcon(filename,tooltip), label);
+        }
+
+        /* METHODS FOR DROPTARGETLISTENER */
+
+        public void dragEnter(DropTargetDragEvent evt) {
+            // Called when the user is dragging and enters this drop target. 
+            this.setBorder(this.highlightBorder);
+        }
+        public void dragOver(DropTargetDragEvent evt) {
+            // Called when the user is dragging and moves over this drop target.
+        }
+        public void dragExit(DropTargetEvent evt) {
+            // Called when the user is dragging and leaves this drop target.
+            this.setBorder(null);
+        }
+        public void dropActionChanged(DropTargetDragEvent evt) {
+            // Called when the user changes the drag action between copy or move.
+        }
+        public void drop(DropTargetDropEvent evt) {
+            try {
+                Transferable t = evt.getTransferable();
+
+                if (t.isDataFlavorSupported(PanelEditor.containerFlavor)) {
+                    evt.acceptDrop(DnDConstants.ACTION_MOVE);
+                    PanelEvent data = (PanelEvent)t.getTransferData(PanelEditor.containerFlavor);
+                    evt.getDropTargetContext().dropComplete(true);
+                    DNDContainer parent = data.getObject().getParentDNDContainer();
+                    parent.removeDNDObject(data.getObject(),data.getEditor());
+                    this.setBorder(null);
+                    parent.revalidate();
+                    System.err.println("Removed component from panel");
+                } else {
+                    System.err.println("Flavour nor supported");
+                    evt.rejectDrop();
+                }
+            } catch (IOException e) {
+                evt.rejectDrop();
+            } catch (UnsupportedFlavorException e) {
+                evt.rejectDrop();
+            }
+        }
+    }
+}
+
+abstract class DNDObject extends JPanel implements java.io.Serializable {
+    Element element;
+    DNDContainer parent;
+
+    public DNDObject() {
+        super();
+    }
+    
+    public Element getElement() { return(this.element); }
+
+    public void setElement(Element element) { this.element = element; }
+
+    public void setParent(DNDContainer parent) { this.parent = parent; }
+
+    public DNDContainer getParentDNDContainer() { return(this.parent); }
+
+    //Generate this node and add it to its parent.
+    protected abstract void generateElement(Element parent);    
+
+}
+
+/*
+class DNDSpace extends DNDObject implements DropTargetListener {
+    Border defaultBorder;
+    Border highlightBorder;
+
+    public DNDSpace() {
+        super();
+        new DropTarget(this,this);
+        this.add(new JLabel("Space"));
+        this.defaultBorder = new CompoundBorder(new EmptyBorder(5,5,5,5),new javax.swing.border.LineBorder(java.awt.Color.BLUE,1,true));
+        this.highlightBorder = new CompoundBorder(new EmptyBorder(5,5,5,5),new javax.swing.border.LineBorder(java.awt.Color.GREEN,1,true));
+        this.setBorder(defaultBorder);
+    }
+    
+    public Element getElement() { return(null); }
+
+    //Generate this node and add it to its parent.
+    protected void generateElement(Element parent) { ; }
+
+    // ==== METHODS FOR DROPTARGETLISTENER =====
+
+    public void dragEnter(DropTargetDragEvent evt) {
+        // Called when the user is dragging and enters this drop target.
+        this.setBorder(this.highlightBorder);
+    }
+    public void dragOver(DropTargetDragEvent evt) {
+        // Called when the user is dragging and moves over this drop target.
+    }
+    public void dragExit(DropTargetEvent evt) {
+        // Called when the user is dragging and leaves this drop target.
+        final DNDSpace thisF = this;
+        final Border defaultBorderF = this.defaultBorder;
+        EventQueue.invokeLater(new Runnable() {
+            public void run() {
+                thisF.setBorder(defaultBorderF);
+            }
+        });
+    }
+    public void dropActionChanged(DropTargetDragEvent evt) {
+        // Called when the user changes the drag action between copy or move.
+    }
+    public void drop(DropTargetDropEvent evt) {
+        try {
+            Transferable t = evt.getTransferable();
+
+            if (t.isDataFlavorSupported(PanelEditor.containerFlavor)) {
+                evt.acceptDrop(DnDConstants.ACTION_COPY_OR_MOVE);
+
+                DNDObject data = (DNDObject)t.getTransferData(PanelEditor.containerFlavor);
+                evt.getDropTargetContext().dropComplete(true);                
+                this.parent.addDNDObject(data,this);            //Add created component to this panel.
+                data.setParent(this.parent);
+                this.setBorder(this.defaultBorder);
+                this.revalidate();
+
+                System.err.println("Added component between space and component or space and wall");
+            } else {
+                System.err.println("Flavour nor supported");
+                evt.rejectDrop();
+            }
+        } catch (IOException e) {
+            evt.rejectDrop();
+        } catch (UnsupportedFlavorException e) {
+            evt.rejectDrop();
+        }
+    }
+
+}
+*/
+
+class DNDPlugin extends DNDObject implements DragGestureListener, DragSourceListener {
+    protected DragSource dragSource;
+    org.bentokit.krispi.Plugin plugin;
+
+    public DNDPlugin(org.bentokit.krispi.Plugin plugin) {
+        super();
+
+        this.dragSource = new DragSource();
+        this.dragSource.createDefaultDragGestureRecognizer(
+            this, DnDConstants.ACTION_MOVE, this);
+
+        this.setLayout(new BorderLayout());
+
+        if (plugin.getIcon() != null) {
+            this.add(new JLabel(plugin.getIcon()),BorderLayout.CENTER);
+        }
+        this.add(new JLabel(plugin.getName()),BorderLayout.SOUTH);
+
+        this.plugin = plugin;
+    }
+
+    /* DNDObject Abstract Methods Implementation */
+
+    protected void generateElement(Element parent) {
+        this.element = parent.getOwnerDocument().createElement("Plugin");
+        this.element.setAttribute("name",this.plugin.getName());
+        parent.appendChild(this.element);
+    }
+
+    /* DragGestureListener Methods Implementation */
+
+    public void dragGestureRecognized(DragGestureEvent evt) {
+        Transferable t = new TransferableComponent(this);
+        this.dragSource.startDrag (evt, DragSource.DefaultCopyDrop, t, this);
+    }
+
+    /* DragSourceListener Methods Implementation */
+
+    public void dragEnter(DragSourceDragEvent evt) {
+        // Called when the user is dragging this drag source and enters
+        // the drop target.
+    }
+    public void dragOver(DragSourceDragEvent evt) {
+        // Called when the user is dragging this drag source and moves
+        // over the drop target.
+    }
+    public void dragExit(DragSourceEvent evt) {
+        // Called when the user is dragging this drag source and leaves
+        // the drop target.
+    }
+    public void dropActionChanged(DragSourceDragEvent evt) {
+        // Called when the user changes the drag action between copy or move.
+    }
+    public void dragDropEnd(DragSourceDropEvent evt) {
+        // Called when the user finishes or cancels the drag operation.
+    }
+    
+}
+
+class DNDContainer extends DNDObject implements DragGestureListener, DragSourceListener, DropTargetListener {
+    protected DragSource dragSource;
+    Border defaultBorder;
+    Border highlightBorder;
+    Vector<DNDObject> children;
+
+    public DNDContainer() {
+        super();
+        this.add(Box.createRigidArea(new java.awt.Dimension(100,40)));
+
+        this.dragSource = new DragSource();
+        this.dragSource.createDefaultDragGestureRecognizer(
+            this, DnDConstants.ACTION_MOVE, this);
+
+        new DropTarget(this,this);
+
+        //this.add(new JLabel("Container"));
+        this.defaultBorder = new CompoundBorder(new EmptyBorder(5,5,5,5),new javax.swing.border.LineBorder(java.awt.Color.BLUE,1,true));
+        this.highlightBorder = new CompoundBorder(new EmptyBorder(5,5,5,5),new javax.swing.border.LineBorder(java.awt.Color.GREEN,1,true));
+        this.setBorder(defaultBorder);
+        
+        this.children = new Vector<DNDObject>();
+
+        //DNDSpace space = new DNDSpace();
+        //this.add(space);
+        //space.setParent(this);        
+    }
+
+
+    /* DNDObject Abstract Methods Implementation */
+
+    protected void generateElement(Element parent) {
+        if (this.getLayout() instanceof BoxLayout) {
+            this.element = parent.getOwnerDocument().createElement("Panel");
+            this.element.setAttribute("layout","BoxLayout");
+            
+            this.element.setAttribute("axis",(new Integer(((BoxLayout)this.getLayout()).getAxis())).toString());
+            parent.appendChild(this.element);
+        }
+    }
+
+
+    public void addDNDObject(DNDObject child, PanelEditor panelEditor) {
+        this.addDNDObject(child,null,panelEditor);
+    }
+
+    public void addDNDObject(DNDObject child, DNDObject after, PanelEditor panelEditor) {
+        final int index;
+        //final int spaceindex;
+        if (after == null) { 
+            index = -1; 
+            //spaceindex = -1; 
+        }
+        else { 
+            index = this.children.indexOf(after);
+            //spaceindex = index + 1;  //Because of the add, the space will need to be 1 more than where it was.
+        }
+
+        //DNDSpace space = new DNDSpace();
+        //space.setParent(this);
+        
+        final JPanel panel = this;
+        final DNDObject childF = child;
+        //final DNDSpace spaceF = space;
+        EventQueue.invokeLater(new Runnable() {
+            public void run() {
+                panel.add(childF,index);
+//                panel.add(spaceF,spaceindex);
+            }
+        });
+        this.children.add(child);
+//        this.children.add(space);
+
+        child.generateElement(this.element);
+
+        panelEditor.saveXMLtoFile();
+    }
+
+    public Vector<DNDObject> getChildrenDNDObjects() {
+        return(children);
+    }
+
+    //Remove a child node from this node.
+    public void removeDNDObject(DNDObject child, PanelEditor panelEditor) {
+        //Get the space first
+        //DNDSpace space = (DNDSpace) this.children.get(this.children.indexOf(child)+1);
+
+    
+        //Remove both from the panel
+        final JPanel panel = this;
+        final DNDObject childF = child;
+        //final DNDSpace spaceF = space;
+        EventQueue.invokeLater(new Runnable() {
+            public void run() {
+                panel.remove(childF);
+                //panel.remove(spaceF);
+            }
+        });
+
+        //Remove both from the container's children
+        this.children.remove(child);
+        //this.children.remove(space);
+
+        //Remove the element from the XML tree
+        this.element.removeChild(child.getElement());
+
+        panelEditor.saveXMLtoFile();
+    }
+
+
+    /* DragGestureListener Methods Implementation */
+
+    public void dragGestureRecognized(DragGestureEvent evt) {
+        Transferable t = new TransferableComponent(this);
+        this.dragSource.startDrag (evt, DragSource.DefaultMoveDrop, t, this);
+    }
+
+    /* DragSourceListener Methods Implementation */
+
+    public void dragEnter(DragSourceDragEvent evt) {
+        // Called when the user is dragging this drag source and enters
+        // the drop target.
+    }
+    public void dragOver(DragSourceDragEvent evt) {
+        // Called when the user is dragging this drag source and moves
+        // over the drop target.
+    }
+    public void dragExit(DragSourceEvent evt) {
+        // Called when the user is dragging this drag source and leaves
+        // the drop target.
+    }
+    public void dropActionChanged(DragSourceDragEvent evt) {
+        // Called when the user changes the drag action between copy or move.
+    }
+    public void dragDropEnd(DragSourceDropEvent evt) {
+        // Called when the user finishes or cancels the drag operation.
+    }
+    
+
+    
+    /* METHODS FOR DROPTARGETLISTENER */
+
+    public void dragEnter(DropTargetDragEvent evt) {
+        // Called when the user is dragging and enters this drop target.
+        this.setBorder(this.highlightBorder);
+    }
+    public void dragOver(DropTargetDragEvent evt) {
+        // Called when the user is dragging and moves over this drop target.
+    }
+    public void dragExit(DropTargetEvent evt) {
+        // Called when the user is dragging and leaves this drop target.
+        final DNDContainer thisF = this;
+        final Border defaultBorderF = this.defaultBorder;
+        EventQueue.invokeLater(new Runnable() {
+            public void run() {
+                thisF.setBorder(defaultBorderF);
+            }
+        });
+    }
+    public void dropActionChanged(DropTargetDragEvent evt) {
+        // Called when the user changes the drag action between copy or move.
+    }
+    public void drop(DropTargetDropEvent evt) {
+        try {
+            Transferable t = evt.getTransferable();
+
+            if (t.isDataFlavorSupported(PanelEditor.containerFlavor)) {
+                evt.acceptDrop(DnDConstants.ACTION_COPY_OR_MOVE);
+                PanelEvent data = (PanelEvent)t.getTransferData(PanelEditor.containerFlavor);
+                evt.getDropTargetContext().dropComplete(true);                
+                this.addDNDObject(data.getObject(),data.getEditor());            //Add created component to this panel.
+                data.getObject().setParent(this);
+                this.setBorder(this.defaultBorder);
+                this.revalidate();
+                System.err.println("Added component to panel");
+            } else {
+                System.err.println("Flavour nor supported");
+                evt.rejectDrop();
+            }
+        } catch (IOException e) {
+            evt.rejectDrop();
+        } catch (UnsupportedFlavorException e) {
+            evt.rejectDrop();
+        }
+    }
+}
+
+
+class PanelEvent {
+    DNDObject object;
+    PanelEditor panelEditor;
+
+    public PanelEvent(DNDObject object, PanelEditor panelEditor) {
+        this.object = object;
+        this.panelEditor = panelEditor;
+    }
+
+    public DNDObject getObject() { return(this.object); }
+    public PanelEditor getEditor() { return(this.panelEditor); }
+}
+
+class TransferableComponent implements Transferable {
+    PanelEvent component;
+
+    public TransferableComponent(PanelEvent c) {
+        this.component = c;
+    }
+
+    // Returns an object which represents the data to be transferred.
+    public Object getTransferData(DataFlavor flavor) {
+        return(this.component);
+    }
+    // Returns an array of DataFlavor objects indicating the flavors the data can be provided in.
+    public DataFlavor[]	getTransferDataFlavors() {
+        DataFlavor[] flavors = new DataFlavor[1];
+        flavors[0] = PanelEditor.containerFlavor;
+        return(flavors);
+    }
+    // Returns whether or not the specified data flavor is supported for this object.
+    public boolean	isDataFlavorSupported(DataFlavor flavor) {
+        return (flavor == PanelEditor.containerFlavor);
+    }
+}
+
