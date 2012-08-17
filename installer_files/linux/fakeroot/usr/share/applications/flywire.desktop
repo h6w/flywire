@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Name=Playout
+Comment=Radio Broadcasting Playout
+GenericName=Playout
+Exec=/usr/lib/flywire/run.sh
+Terminal=false
+X-MultipleArgs=false
+Type=Application
+Icon=bentokit-flywire
+Categories=Radio
+StartupNotify=true

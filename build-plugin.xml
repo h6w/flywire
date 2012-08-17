@@ -1,0 +1,272 @@
+<project name="libkrispi-TestPlugin" default="build" basedir=".">
+    <description>
+        BRipper build file (for Linux build environment, but may work on others)
+        Requires NSIS to build Windows Installers.
+        Requires makedmg to make OSX installer DMG file.
+        See http://www.trampolinesystems.com/blog/machines/2008/05/19/creating-dmg-files-without-macos-x/
+        Use -Dplatform={platform} to override current platform.
+        Where {platform} is one of "windows", "linux", "osx"
+    </description>
+    <!-- set global properties for this build -->
+    <property name="build.compiler" value="javac1.6"/>
+    <property name="source_level" value="1.6"/>
+    <property name="target_level" value="1.6"/>
+    <!-- <property name="packagepath" value="org/bentokit/krispi/tests"/> --> <!-- specified as param -->
+    <!-- <property name="package"  value="org.bentokit.krispi.tests"/> --> <!-- specified as param -->
+    <!-- <property name="package.name"  value="org.bentokit.krispi.tests"/> --> <!-- specified as param -->
+    <property name="package.section"  value="devel"/>
+    <property name="src" location="src"/>
+    <property name="bin" location="bin"/>
+    <property name="lib" location="lib"/>
+    <property name="jmfhome" location="/opt/JMF-2.1.1e"/>
+    <!-- <property name="jarname" value="TestPlugin"/> --> <!-- specified as param -->
+    <!-- <property name="appname" value="TestPlugin"/> --> <!-- specified as param -->
+    <!-- <property name="pluginclass" value="TestPlugin"/> --> <!-- specified as param -->
+    <property name="releasetype" value="custom"/>
+    <property name="package.upstream.version" value="0.1"/>
+    <property name="build" location="build"/>
+    <property name="dist" location="dist"/>
+    <property name="platform" value="${os.name}" />
+    <property file="build.${platform}.properties"/> <!-- Supplies builddir, installersrc, and platformspecificlibs parameters -->
+
+    <path id="project.class.path">
+        <pathelement location="${build}/classes/" />
+        <pathelement location="${lib}/libkrispi.jar" />
+        <pathelement location="${lib}/commons-codec.jar" />
+        <pathelement location="${lib}/commons-io.jar" />
+        <pathelement location="${lib}/serializer.jar" />
+    </path>
+
+  <taskdef resource="net/sf/antcontrib/antlib.xml">
+    <classpath>
+      <pathelement location="compile_lib/ant-contrib-1.0b3.jar"/>
+    </classpath>
+  </taskdef>
+
+  <taskdef name="nsis" classname="net.sf.nsisant.Task"> 
+      <classpath location="compile_lib/nsisant-1.2.jar"/>
+  </taskdef>
+  <taskdef name="debian-package" classname="com.googlecode.ant_deb_task.Deb"> 
+      <classpath location="compile_lib/ant-deb-0.0.1.jar"/>
+  </taskdef>
+  <taskdef name="desktopEntry" classname="com.googlecode.ant_deb_task.DesktopEntry">
+      <classpath location="compile_lib/ant-deb-0.0.1.jar"/>
+  </taskdef>
+
+  <target name="dist" depends="jar">
+    <echo message="Building for platform ${platform}" />
+    <switch value="${platform}">
+        <case value="Windows">    
+          <mkdir dir="${build}"/>
+          <mkdir dir="${build}/packageprep"/>
+          <mkdir dir="${build}/packageprep/bin"/>
+          <copy todir="${build}/packageprep/bin">
+              <fileset dir="bin"/>
+          </copy>
+          <copy file="${build}/jar/${jarname}.jar" todir="${build}/packageprep" />
+          <copy file="LICENSE.txt" tofile="${build}/packageprep/LICENSE.txt" />
+          <copy todir="${build}/packageprep">
+              <fileset dir="${installersrc}"/>
+          </copy>
+          <mkdir dir="dist"/>
+          <mkdir dir="dist/windows"/>
+          <nsis script="${build}/packageprep/nsisinstaller.nsi" verbosity="4" out="build.log" noconfig="yes">
+              <define name="RELEASETYPE" value="${releasetype}"/>
+              <define name="VERSION" value="0_1-${DSTAMP}"/>
+              <define name="AppName" value="${appname}"/>
+              <define name="DestDir" value="..\..\dist\windows"/>
+              <!-- <scriptcmd cmd="AutoCloseWindow true"/> -->
+          </nsis>
+        </case>
+        <case value="MacOS">    
+          <mkdir dir="${build}"/>
+          <mkdir dir="${build}/packageprep"/>
+          <copy todir="${build}/packageprep" >
+              <fileset dir="${installersrc}"/>
+          </copy>
+          <!-- <copy file="${installersrc}/lib/org.eclipse.swt.carbon.macosx.jar" todir="${build}/${appname}.app" /> -->
+          <copy todir="${build}/packageprep/${appname}.app/Contents/MacOS/bin">
+              <fileset dir="bin"/>
+          </copy>
+          <copy todir="${build}/packageprep/${appname}.app/Contents/MacOS">
+              <fileset dir="lib"/>
+          </copy>
+          <copy file="${build}/jar/${jarname}.jar" todir="${build}/packageprep/${appname}.app/Contents/MacOS" />
+          <copy file="LICENSE" tofile="${build}/packageprep/${appname}.app/LICENSE.txt" />
+          <exec executable="/bin/chmod" failonerror="true">
+              <arg value="-R"/>
+              <arg value="a+rwX"/>
+              <arg value="${build}/packageprep"/>
+          </exec>
+          <exec executable="/bin/chmod" failonerror="true">
+              <arg value="a+x"/>
+              <arg value="${build}/packageprep/${appname}.app/Contents/MacOS/${appname}"/>
+          </exec>
+          <exec executable="/usr/bin/sudo" failonerror="true">
+              <arg value="/usr/bin/makedmg"/>
+              <arg value="${build}/${appname}.dmg"/>
+              <arg value="${appname}"/>
+              <arg value="25"/>
+              <arg value="${build}/packageprep"/>
+          </exec>
+        </case>
+        <case value="Linux">    
+          <mkdir dir="${build}"/>
+          <mkdir dir="${build}/tarprep"/>
+          <mkdir dir="${build}/tarprep/usr"/>
+          <mkdir dir="${build}/tarprep/usr/lib"/>
+          <mkdir dir="${build}/tarprep/usr/lib/${package.name}"/>
+          <copy todir="${build}/tarprep/usr/lib/${package.name}">
+              <fileset dir="bin"/>
+          </copy>
+          <copy file="${build}/jar/${jarname}.jar" todir="${build}/tarprep/usr/lib/${package.name}" />
+          <copy file="LICENSE.txt" tofile="${build}/tarprep/LICENSE.txt" />
+          <tar destfile="${build}/${appname}-${releasetype}-${platform}-x86-0_1-${DSTAMP}.tar" basedir="${build}/tarprep" />
+            <tstamp>
+                <format property="changelog.date" pattern="EEE, dd MMM yyyy" />
+            </tstamp>
+            <if>
+                <not>
+                  <equals arg1="${message}" arg2="" />
+                </not>
+                <then>
+                    <echo file="docs/changelog" append="yes" message="${changelog.date} ${package.upstream.version} ${message}" />
+                </then>
+            </if>
+            <!-- Check today's date exists in the changelog! -->
+           <fail message="Need to create a changelog file.  Use dch --create -c docs/changelog.">
+               <condition>            
+                   <not>
+                       <available file="docs/changelog" />
+                   </not>
+               </condition>
+           </fail>
+           <loadfile srcFile="docs/changelog" property="changelog" />        
+           <fail message="Need to modify the changelog to include today's date and version!  Need to see ${changelog.date} and ${package.upstream.version}">
+
+               <condition>            
+                   <or>
+                       <not>
+                            <contains substring="${changelog.date}" string="${changelog}" />
+                       </not>
+                       <not>
+                            <contains substring="${package.upstream.version}" string="${changelog}" />
+                       </not>
+                   </or>
+               </condition>
+           </fail>
+           <mkdir dir="dist"/>
+           <mkdir dir="dist/linux"/>
+           <mkdir dir="dist/linux/${releasetype}"/>
+           <debian-package
+                        package="${package.name}"
+                        todir="dist/linux/${releasetype}"
+                        section="${package.section}"
+                        depends="sun-java6-jre | sun-java6-jdk">
+                <version upstream="${package.upstream.version}"/>
+                <maintainer name="${package.maintainer.name}" email="${package.maintainer.email}"/>
+                <description synopsis="${package.synopsis}">${package.description}</description>
+                <changelog file="docs/changelog" />
+                <tarfileset dir="${build}/tarprep" />
+          </debian-package>
+        </case>
+        <default>
+            <fail message="I don't yet know how to build an installer for ${platform}" />
+        </default>
+    </switch>        
+  </target>
+
+  <target name="init">
+    <!-- Create the time stamp -->
+    <tstamp/>
+    <!-- Create the build directory structure used by compile -->
+    <mkdir dir="${build}/classes/plugins/"/>
+    <mkdir dir="${build}/classes/plugins/${appname}/${packagepath}/"/>
+  </target>
+
+  <target name="clean"
+        description="clean up" >
+    <!-- Delete the ${build} and ${dist} directory trees -->
+    <delete dir="${build}/classes/plugins"/>
+    <delete dir="${dist}"/>
+    <delete>
+      <fileset dir="." includes="errors-*.log"/>
+      <fileset dir="." includes="*\~"/>
+    </delete>
+  </target>
+
+  <target name="build" depends="init"
+        description="compile the source " >
+
+      <!-- Copy the java code from ${src} into ${build}/src -->
+      <copy todir="${build}/classes/plugins/${appname}/${packagepath}" overwrite="true">
+          <fileset dir="${src}/${packagepath}"/>
+      </copy>
+      <!-- Mark with the version number -->
+      <echo file="${build}/VERSION.txt" append="false">${releasetype}-${version}${versionsuffix}-${DSTAMP}</echo>
+      <!-- Compile the java code from ${build} into ${build} -->
+      <echo message="Compile the java code from ${src} into ${build}/classes with path ${toString:project.class.path}" />
+      <javac srcdir="${build}/classes/plugins/${appname}" destdir="${build}/classes/plugins/${appname}" debug="true" classpathref="project.class.path" source="${source_level}" target="${target_level}" encoding="Latin1">
+        <include name="${packagepath}/${appname}.java" />
+    </javac>
+  </target>
+
+  <target name="run" depends="jar">
+      <copy file="${build}/VERSION.txt" tofile="VERSION.txt" />
+      <java dir="${build}/jar/" jar="${build}/jar/${jarname}.jar" fork="true">
+          <env key="LD_LIBRARY_PATH" path="/usr/lib/jni/" />
+          <arg value="--debug" />
+      </java>  
+      <delete file="VERSION.txt" />
+  </target>
+
+  <target name="run_nodebug" depends="jar">
+      <copy file="${build}/VERSION.txt" tofile="VERSION.txt" />
+      <java jar="${build}/jar/${jarname}.jar" fork="true">
+          <env key="LD_LIBRARY_PATH" path="/usr/lib/jni/" />
+      </java>  
+      <delete file="VERSION.txt" />
+  </target>
+
+  <target name="run_errorsonly" depends="jar">
+      <copy file="${build}/VERSION.txt" tofile="VERSION.txt" />
+      <java jar="${build}/jar/${jarname}.jar" fork="true">
+          <env key="LD_LIBRARY_PATH" path="/usr/lib/jni/" />
+          <arg value="--debug=ERROR" />
+      </java>  
+      <delete file="VERSION.txt" />
+  </target>
+
+  <target name="jar" depends="build">
+      <mkdir dir="${build}/jar"/>
+      <mkdir dir="${build}/jar/plugins/"/>
+      <copy todir="${build}/classes/plugins/${appname}">
+          <fileset file="${src}/${packagepath}/icon.png"/>
+      </copy>
+      <jar destfile="${build}/jar/plugins/${jarname}.jar" basedir="${build}/classes/plugins/${appname}">
+          <manifest>
+              <attribute name="Flywire-Plugin-Name" value="${appname}"/>
+              <attribute name="Flywire-Plugin-Description" value="Demonstration Plugin for TestApp plugin interface."/>
+              <attribute name="Flywire-Plugin-Package" value="${package}"/>
+              <attribute name="Flywire-Plugin-Class" value="${pluginclass}"/>
+          </manifest>
+      </jar>
+  </target>
+
+
+  <target name="test" depends="build,run">
+  </target>
+
+  <target name="zip" depends="jar">
+      <mkdir dir="${build}"/>
+      <mkdir dir="${build}/zipprep"/>
+      <mkdir dir="${build}/zipprep/bin"/>
+      <copy file="${installersrc}/lib/${platformspecificlibs}" todir="${build}/zipprep" />
+      <copy todir="${build}/zipprep/bin">
+          <fileset dir="bin"/>
+      </copy>
+      <copy file="${build}/jar/${jarname}.jar" todir="${build}/zipprep" />
+      <copy file="LICENSE" tofile="${build}/zipprep/LICENSE.txt" />
+      <zip destfile="${build}/${appname}-Nightly-${platform}-x86-0_1-${DSTAMP}.zip" basedir="${build}/zipprep" level="9" />
+  </target>
+</project>
