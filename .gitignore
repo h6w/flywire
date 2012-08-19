@@ -2,3 +2,5 @@ build/
 dist/
 log/
 *.class
+build.log
+error.log
