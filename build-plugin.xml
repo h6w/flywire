@@ -31,6 +31,7 @@
 
     <path id="project.class.path">
         <pathelement location="${build}/classes/" />
+        <pathelement location="${jmfhome}/lib/jmf.jar" />
         <pathelement location="${lib}/libkrispi.jar" />
         <pathelement location="${lib}/commons-codec.jar" />
         <pathelement location="${lib}/commons-io.jar" />

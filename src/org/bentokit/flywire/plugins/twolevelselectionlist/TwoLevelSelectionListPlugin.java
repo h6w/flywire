@@ -41,7 +41,7 @@ public class TwoLevelSelectionListPlugin extends Plugin implements Optionable {
 
     /**** Optionable Interface ****/
 
-    static ArrayList<OptionGroup> options = new ArrayList<OptionGroup>(Arrays.asList(new OptionGroup[] {
+    ArrayList<OptionGroup> options = new ArrayList<OptionGroup>(Arrays.asList(new OptionGroup[] {
         new OptionGroup("general","General",
             new ArrayList<Option>(Arrays.asList(new Option[] {
               new StringOption("Title", "A name for the panel.",this.getPackageName()+".title","SelectionList"),

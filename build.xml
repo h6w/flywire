@@ -262,7 +262,7 @@
     </javac>
   </target>
 
-  <target name="run" depends="jar">
+  <target name="run" depends="jar,buildplugins">
       <copy file="${build}/VERSION.txt" tofile="VERSION.txt" />
       <java dir="${build}/jar/" jar="${build}/jar/${jarname}.jar" fork="true">
           <env key="LD_LIBRARY_PATH" path="/usr/lib/jni/" />
@@ -271,7 +271,7 @@
       <delete file="VERSION.txt" />
   </target>
 
-  <target name="run_nostorage" depends="jar">
+  <target name="run_nostorage" depends="jar,buildplugins">
       <copy file="${build}/VERSION.txt" tofile="VERSION.txt" />
       <java jar="${build}/jar/${jarname}.jar" fork="true">
           <env key="LD_LIBRARY_PATH" path="/usr/lib/jni/" />
@@ -281,7 +281,7 @@
       <delete file="VERSION.txt" />
   </target>
 
-  <target name="run_nodebug" depends="jar">
+  <target name="run_nodebug" depends="jar,buildplugins">
       <copy file="${build}/VERSION.txt" tofile="VERSION.txt" />
       <java jar="${build}/jar/${jarname}.jar" fork="true">
           <env key="LD_LIBRARY_PATH" path="/usr/lib/jni/" />
@@ -289,7 +289,7 @@
       <delete file="VERSION.txt" />
   </target>
 
-  <target name="run_errorsonly" depends="jar">
+  <target name="run_errorsonly" depends="jar,buildplugins">
       <copy file="${build}/VERSION.txt" tofile="VERSION.txt" />
       <java jar="${build}/jar/${jarname}.jar" fork="true">
           <env key="LD_LIBRARY_PATH" path="/usr/lib/jni/" />
