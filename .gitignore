@@ -4,3 +4,6 @@ log/
 *.class
 build.log
 error.log
+Schedule/
+ScheduledMedia/
+ShowMedia/
